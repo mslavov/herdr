@@ -61,13 +61,47 @@ Herdr 对 Linux/macOS 上的集成配置和所有平台的新文件使用原子�
 
 每个集成都会告诉 Herdr 智能体当前所在的会话,这样 Herdr 就能在服务器重启后恢复它。用 `[session] resume_agents_on_restore = false` 可以关闭。
 
-Pi、OMP、Kimi Code CLI、OpenCode、Kilo Code CLI 和 MastraCode 的集成还会上报智能体的状态。在它们上报期间,Herdr 使用这些上报,而不是读取屏幕。其他集成则把状态交给屏幕检测。
+| 集成类型 | 智能体 | 效果 |
+| --- | --- | --- |
+| 生命周期权威 | Felan、Pi、OMP、Kimi Code CLI、OpenCode、Kilo Code CLI、MastraCode | 在为该窗格主动上报时,由内置上报器、钩子或插件事件决定 `idle`、`working` 和 `blocked`。对同一个生命周期权威,Herdr 不再使用屏幕清单兜底。 |
+| 会话身份 | Claude Code、Codex、GitHub Copilot CLI、Devin CLI、Droid、Qoder CLI、Qwen Code、Letta Code、Cursor Agent CLI、Hermes Agent、Antigravity CLI、Grok CLI | 集成上报用于恢复的原生会话引用。状态仍来自 Herdr 的屏幕清单检测。 |
 
 原生会话恢复需要最新的 Herdr 集成: Pi 集成版本 `2`、OMP 版本 `3`、Claude Code 版本 `6`、Codex 版本 `5`、GitHub Copilot CLI 版本 `2`、Devin CLI 版本 `2`、Droid 版本 `2`、Kimi Code CLI 版本 `3`、Qoder CLI 版本 `2`、Qwen Code 版本 `1`、Letta Code 版本 `1`、Cursor Agent CLI 版本 `1`、Grok CLI 版本 `2`、OpenCode 版本 `5`、Kilo Code CLI 版本 `1`、Hermes Agent 版本 `5`、MastraCode 版本 `1`、Antigravity CLI 版本 `1`。用 `herdr integration status` 查看已安装版本。
 
 ## 集成你自己的智能体
 
-如果你在开发编码智能体,可以在不为 Herdr 添加原生支持的情况下,从你自己的代码向 Herdr 上报它的状态和恢复命令。参阅[为你的智能体添加 Herdr 支持](/zh-cn/docs/add-herdr-support/)。
+在 Herdr 窗格中运行的智能体会继承 `HERDR_ENV`、`HERDR_PANE_ID`、`HERDR_BIN_PATH` 和 `HERDR_SOCKET_PATH`。如果智能体提供生命周期钩子,可从这些钩子通过 Herdr CLI 上报语义状态:
+
+```bash
+"$HERDR_BIN_PATH" pane report-agent "$HERDR_PANE_ID" \
+  --source custom:my-agent \
+  --agent my-agent \
+  --state working
+```
+
+当智能体等待输入时上报 `idle`,需要用户决策时上报 `blocked`。用 `--message` 描述阻塞原因。智能体退出时,释放同一来源的生命周期权威:
+
+```bash
+"$HERDR_BIN_PATH" pane release-agent "$HERDR_PANE_ID" \
+  --source custom:my-agent \
+  --agent my-agent
+```
+
+仅在 `HERDR_ENV=1` 且必要变量存在时上报,这样集成在 Herdr 外不会执行任何操作。保持 `--source` 稳定且对该集成唯一。如果上报可能乱序到达,请加入严格递增的 `--seq`;Herdr 会忽略同一来源的旧序列号。
+
+你可以在 `report-agent` 中加入 `--agent-session-id` 或 `--agent-session-path`,也可以在会话身份独立于状态变化时使用 `pane report-agent-session`。Herdr 会通过窗格和智能体 API 暴露该引用。自动恢复会话还要求 Herdr 知道如何启动该智能体并恢复所引用的会话。
+
+要实现可移植的集成,请使用 `HERDR_BIN_PATH` 和 CLI 包装命令。需要直接 IPC 的代码可以发送 [Socket API](/zh-cn/docs/socket-api/) 中说明的等效 `pane.report_agent`、`pane.report_agent_session` 和 `pane.release_agent` 请求。
+
+[Prime Agent 内置的 Herdr 上报器](https://github.com/PrimeIntellect-ai/prime-agent/blob/main/packages/coding-agent/src/core/extensions/builtin/herdr-agent-state.ts)是一个真实实现示例。它只在 Herdr 中启用,将智能体事件映射为 `working`、`idle` 和 `blocked`,跨会话保持上报顺序,并在退出时释放权威。
+
+一些集成和内置上报器会上报智能体的原生会话引用。除非被 `[session] resume_agents_on_restore = false` 禁用,Herdr 会在服务器重启后使用官方会话引用恢复 Felan、Claude Code、Codex、Devin CLI、Droid、Kimi Code CLI、Qoder CLI、Qwen Code、Letta Code、Cursor Agent CLI、Grok CLI、GitHub Copilot CLI、Pi、OMP、Hermes Agent、OpenCode、Kilo Code CLI、MastraCode 和 Antigravity CLI 的窗格。
+
+原生会话恢复需要最新的 Herdr 集成: Pi 集成版本 `2`、OMP 版本 `3`、Claude Code 版本 `6`、Codex 版本 `5`、GitHub Copilot CLI 版本 `2`、Devin CLI 版本 `2`、Droid 版本 `2`、Kimi Code CLI 版本 `3`、Qoder CLI 版本 `2`、Qwen Code 版本 `1`、Letta Code 版本 `1`、Cursor Agent CLI 版本 `1`、Grok CLI 版本 `2`、OpenCode 版本 `5`、Kilo Code CLI 版本 `1`、Hermes Agent 版本 `5`、MastraCode 版本 `1`、Antigravity CLI 版本 `1`。用 `herdr integration status` 查看已安装版本。
+
+## Felan
+
+Felan 内置 Herdr 生命周期上报器,无需另行安装 Herdr 集成。上报器提供生命周期状态和基于 ID 的原生会话引用;Herdr 使用 `felan --session <id>` 恢复会话。该 ID 从 Felan 已配置或默认的会话目录中解析,因此通过一次性 `--session-dir` 打开的目录外会话无法自动恢复。
 
 ## Pi
 

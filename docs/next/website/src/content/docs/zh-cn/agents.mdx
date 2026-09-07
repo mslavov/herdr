@@ -19,29 +19,31 @@ Herdr 能识别这些智能体,并从它们在屏幕上绘制的内容读取状�
 
 | 智能体 | 集成 | 说明 |
 | --- | --- | --- |
-| Claude Code | `claude` | |
-| Codex | `codex` | |
-| GitHub Copilot CLI | `copilot` | |
-| Cursor Agent CLI | `cursor` | |
-| OpenCode | `opencode` | 也上报状态 |
-| Pi | `pi` | 也上报状态 |
-| OMP | `omp` | 状态需要集成 |
-| Droid | `droid` | |
-| Devin CLI | `devin` | |
-| Kimi Code CLI | `kimi` | 也上报状态 |
-| Kilo Code CLI | `kilo` | 也上报状态 |
-| Hermes Agent | `hermes` | |
-| Qoder CLI | `qodercli` | |
-| Qwen Code | `qwen` | |
-| Letta Code | `letta` | 仅支持 CLI 安装 |
-| MastraCode | `mastracode` | 状态需要集成 |
-| Grok CLI | `grok` | |
-| Antigravity CLI | `antigravity-cli` | |
-| Amp | 无 | 仅状态 |
-| Kiro CLI | 无 | 仅状态 |
-| Maki | 无 | 仅状态 |
-| Gemini CLI | 无 | 仅状态,测试较少 |
-| Cline | 无 | 仅状态,测试较少 |
+| Pi | 安装后为生命周期钩子;否则为屏幕清单 | 状态与会话 |
+| Felan | 内置生命周期上报器 | 状态与会话 |
+| OMP | 安装后为生命周期钩子 | 状态与会话 |
+| GitHub Copilot CLI | 屏幕清单 | 会话 |
+| Devin CLI | 屏幕清单 | 会话 |
+| Kimi Code CLI | 安装后为生命周期钩子;否则为屏幕清单 | 状态与会话 |
+| Hermes Agent | 屏幕清单 | 会话 |
+| Qoder CLI | 屏幕清单 | 会话 |
+| Qwen Code | 屏幕清单 | 会话 |
+| Letta Code | 屏幕清单 | 会话 |
+| Droid | 屏幕清单 | 会话 |
+| OpenCode | 安装后为生命周期插件;否则为屏幕清单 | 状态与会话 |
+| Kilo Code CLI | 安装后为生命周期插件;否则为屏幕清单 | 状态与会话 |
+| MastraCode | 安装后为生命周期钩子 | 状态与会话 |
+| Claude Code | 屏幕清单 | 会话 |
+| Codex | 屏幕清单 | 会话 |
+| Cursor Agent CLI | 屏幕清单 | 会话 |
+| Amp | 屏幕清单 | 无 |
+| Grok CLI | 屏幕清单 | 会话 |
+| Antigravity CLI | 屏幕清单 | 会话 |
+| Kiro CLI | 屏幕清单 | 无 |
+| Maki | 屏幕清单 | 无 |
+| Gemini CLI | 屏幕清单 | 仅状态,测试较少 |
+| Cline | 屏幕清单 | 仅状态,测试较少 |
+| Muse | 屏幕清单 | 无 |
 
 ### 由智能体自身支持
 
@@ -52,7 +54,7 @@ Herdr 能识别这些智能体,并从它们在屏幕上绘制的内容读取状�
 - Muse
 - [Prime Agent](https://github.com/PrimeIntellect-ai/prime-agent)
 
-同时上报恢复命令的智能体,会在 Herdr 服务器重启后回到同一个会话。
+对于具备完整生命周期钩子的智能体,当集成或内置上报器在为运行中的窗格主动上报时,这些上报就是权威。Herdr 用这些上报来决定 `idle`、`working`、`blocked` 和会话身份。对同一个生命周期权威,它不会再并行运行屏幕清单兜底。这样可以避免出现两个相互竞争的事实来源。
 
 如果你在开发编程智能体,[为你的智能体添加 Herdr 支持](/zh-cn/docs/add-herdr-support/)介绍了如何加入这个列表。只需调用几次 Herdr 的 CLI 或 socket,不需要修改 Herdr。
 
@@ -118,6 +120,17 @@ fi
 一个 blocked 的智能体会让它的窗格、标签页和工作区看起来是 blocked。一个 working 的智能体会让工作区看起来处于活跃状态。一个 done 的智能体在你查看之前会一直保持可见。
 
 这就是 Herdr 的主要工作流: 启动多个智能体,让它们并行工作,用侧边栏看哪个项目需要决策、哪个还在运行、哪个已经可以审阅。
+
+## 直接集成
+
+为需要集成的智能体安装集成;它让 Herdr 获得钩子或插件上报,而不是只靠屏幕检测。像 Felan 这样内置上报器的智能体无需另行安装:
+
+```bash
+herdr integration install claude
+herdr integration status
+```
+
+具有独立集成的智能体各有自己的集成名称和行为。按智能体的细节和完整安装列表见[集成](/zh-cn/docs/integrations/)。如果你正在构建智能体,[自定义集成指南](/zh-cn/docs/integrations/#集成你自己的智能体)介绍了如何在不为 Herdr 添加原生支持的情况下上报生命周期状态。
 
 ## 自定义智能体标签
 
