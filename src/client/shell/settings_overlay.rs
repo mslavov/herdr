@@ -39,7 +39,7 @@ pub(super) fn render_settings_overlay(
     integration_updates_available: bool,
     palette: &Palette,
 ) -> Option<OverlayRender> {
-    let integration_height = 14u16
+    let integration_height = 15u16
         .saturating_add(settings.integrations.len().max(1) as u16)
         .saturating_add(settings.integration_messages.len().min(6) as u16);
     let height = if settings.section == ClientSettingsSection::Integrations {
@@ -319,11 +319,21 @@ fn render_integrations(
         "let agents report state directly instead of relying only on process detection",
         Style::default().fg(palette.overlay1).bg(palette.panel_bg),
     );
+    render_integration_row(
+        buffer,
+        area,
+        area.y + 3,
+        "✓",
+        palette.green,
+        "felan",
+        "built into agent",
+        palette,
+    );
     if settings.loading_integrations {
         put_text(
             buffer,
             area.x,
-            area.y + 3,
+            area.y + 5,
             area.width,
             " loading integrations…",
             Style::default().fg(palette.overlay1).bg(palette.panel_bg),
@@ -334,15 +344,15 @@ fn render_integrations(
         put_text(
             buffer,
             area.x,
-            area.y + 3,
+            area.y + 5,
             area.width,
-            " no integration targets available",
+            " no installable integration targets available",
             Style::default().fg(palette.overlay1).bg(palette.panel_bg),
         );
         return;
     }
     for (index, integration) in settings.integrations.iter().enumerate() {
-        let y = area.y + 3 + index as u16;
+        let y = area.y + 4 + index as u16;
         if y >= area.bottom() {
             break;
         }
@@ -358,34 +368,20 @@ fn render_integrations(
                 ("–", palette.overlay0, "not found")
             }
         };
-        put_text(
+        render_integration_row(
             buffer,
-            area.x,
+            area,
             y,
-            3,
-            &format!(" {marker}"),
-            Style::default().fg(color).bg(palette.panel_bg),
-        );
-        put_text(
-            buffer,
-            area.x + 3,
-            y,
-            11.min(area.width.saturating_sub(3)),
-            &format!("{:<9}", integration.label),
-            Style::default().fg(palette.subtext0).bg(palette.panel_bg),
-        );
-        put_text(
-            buffer,
-            area.x + 14,
-            y,
-            area.width.saturating_sub(14),
+            marker,
+            color,
+            &integration.label,
             status,
-            Style::default().fg(palette.overlay1).bg(palette.panel_bg),
+            palette,
         );
     }
     let message_y = area
         .y
-        .saturating_add(4)
+        .saturating_add(5)
         .saturating_add(settings.integrations.len() as u16);
     for (offset, message) in settings.integration_messages.iter().take(6).enumerate() {
         let y = message_y.saturating_add(offset as u16);
@@ -411,4 +407,40 @@ fn render_integrations(
             Style::default().fg(palette.overlay1).bg(palette.panel_bg),
         );
     }
+}
+
+fn render_integration_row(
+    buffer: &mut Buffer,
+    area: Rect,
+    y: u16,
+    marker: &str,
+    marker_color: ratatui::style::Color,
+    label: &str,
+    status: &str,
+    palette: &Palette,
+) {
+    put_text(
+        buffer,
+        area.x,
+        y,
+        3,
+        &format!(" {marker}"),
+        Style::default().fg(marker_color).bg(palette.panel_bg),
+    );
+    put_text(
+        buffer,
+        area.x + 3,
+        y,
+        11.min(area.width.saturating_sub(3)),
+        &format!("{label:<9}"),
+        Style::default().fg(palette.subtext0).bg(palette.panel_bg),
+    );
+    put_text(
+        buffer,
+        area.x + 14,
+        y,
+        area.width.saturating_sub(14),
+        status,
+        Style::default().fg(palette.overlay1).bg(palette.panel_bg),
+    );
 }
