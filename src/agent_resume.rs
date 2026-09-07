@@ -73,16 +73,23 @@ pub fn persisted_session_from_launch_args(
     agent: crate::detect::Agent,
     args: &[String],
 ) -> Option<PersistedAgentSession> {
-    let [command, session_id] = args else {
-        return None;
+    let (source, label, session_id) = match (agent, args) {
+        (crate::detect::Agent::Codex, [command, session_id])
+            if command == "resume" && !session_id.starts_with('-') =>
+        {
+            ("herdr:codex", "codex", session_id)
+        }
+        (crate::detect::Agent::Felan, [flag, session_id])
+            if flag == "--session" && !session_id.starts_with('-') =>
+        {
+            ("herdr:felan", "felan", session_id)
+        }
+        _ => return None,
     };
-    if agent != crate::detect::Agent::Codex || command != "resume" || session_id.starts_with('-') {
-        return None;
-    }
 
     Some(PersistedAgentSession {
-        source: "herdr:codex".into(),
-        agent: "codex".into(),
+        source: source.into(),
+        agent: label.into(),
         session_ref: AgentSessionRef::id(session_id.clone())?,
     })
 }
@@ -171,6 +178,13 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
         ("herdr:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
             vec!["pi".into(), "--session".into(), session_ref.value.clone()]
         }
+        ("herdr:felan", "felan", AgentSessionRefKind::Id) => {
+            vec![
+                "felan".into(),
+                "--session".into(),
+                session_ref.value.clone(),
+            ]
+        }
         ("herdr:omp", "omp", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
             // omp resume is `-r, --resume=<value>` (ID prefix or path); it has no
             // `--session` flag, unlike pi.
@@ -254,6 +268,7 @@ pub(crate) fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("herdr:omp", "omp")
             | ("herdr:mastracode", "mastracode")
             | ("herdr:pi", "pi")
+            | ("herdr:felan", "felan")
             | ("herdr:hermes", "hermes")
             | ("herdr:opencode", "opencode")
             | ("herdr:qodercli", "qodercli")
@@ -330,6 +345,30 @@ mod tests {
                 "resume".into(),
                 "remote-session".into(),
             ]
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn felan_session_launch_persists_an_id() {
+        let session = persisted_session_from_launch_args(
+            crate::detect::Agent::Felan,
+            &["--session".into(), "felan-session".into()],
+        )
+        .unwrap();
+
+        assert_eq!(session.source, "herdr:felan");
+        assert_eq!(session.agent, "felan");
+        assert_eq!(session.session_ref.kind, AgentSessionRefKind::Id);
+        assert_eq!(session.session_ref.value, "felan-session");
+        assert!(persisted_session_from_launch_args(
+            crate::detect::Agent::Felan,
+            &["--session=/tmp/session.jsonl".into()]
+        )
+        .is_none());
+        assert!(persisted_session_from_launch_args(
+            crate::detect::Agent::Felan,
+            &["--session".into(), "--invalid".into()]
         )
         .is_none());
     }
@@ -417,6 +456,16 @@ mod tests {
             .unwrap()
             .argv,
             vec!["pi", "--session", pi_session.as_str()]
+        );
+        assert_eq!(
+            plan(
+                "herdr:felan",
+                "felan",
+                &AgentSessionRef::id("felan-session").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["felan", "--session", "felan-session"]
         );
         assert_eq!(
             plan(
@@ -632,6 +681,18 @@ mod tests {
         assert_eq!(session_ref.kind, AgentSessionRefKind::Id);
         assert_eq!(session_ref.value, "mastracode-id");
 
+        let felan_path = absolute_test_path("felan-session.jsonl");
+        let session_ref = session_ref_from_report(
+            "herdr:felan",
+            "felan",
+            Some("felan-id".into()),
+            Some(felan_path.clone()),
+        )
+        .unwrap();
+        assert_eq!(session_ref.kind, AgentSessionRefKind::Id);
+        assert_eq!(session_ref.value, "felan-id");
+        assert!(session_ref_from_report("herdr:felan", "felan", None, Some(felan_path)).is_none());
+
         let session_ref =
             session_ref_from_report("herdr:kilo", "kilo", Some("kilo-id".into()), None).unwrap();
         assert_eq!(session_ref.kind, AgentSessionRefKind::Id);
@@ -717,11 +778,32 @@ mod tests {
 
     #[test]
     fn planner_rejects_path_refs_for_id_only_agents() {
+        let felan_session = absolute_test_path("felan-session");
         let hermes_session = absolute_test_path("hermes-session");
         let opencode_session = absolute_test_path("opencode-session");
         let kilo_session = absolute_test_path("kilo-session");
         let copilot_session = absolute_test_path("copilot-session");
         let devin_session = absolute_test_path("devin-session");
+        assert!(plan(
+            "herdr:felan",
+            "felan",
+            &AgentSessionRef::path(&felan_session).unwrap()
+        )
+        .is_none());
+        assert!(session_ref_from_snapshot(
+            "herdr:felan",
+            "felan",
+            AgentSessionRefKind::Id,
+            "felan-session"
+        )
+        .is_some());
+        assert!(session_ref_from_snapshot(
+            "herdr:felan",
+            "felan",
+            AgentSessionRefKind::Path,
+            &felan_session
+        )
+        .is_none());
         assert!(plan(
             "herdr:hermes",
             "hermes",

@@ -42,6 +42,7 @@ pub struct AgentDetection {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Agent {
     Pi,
+    Felan,
     Claude,
     Codex,
     Gemini,
@@ -67,8 +68,9 @@ pub enum Agent {
 }
 
 impl Agent {
-    pub const ALL: [Self; 23] = [
+    pub const ALL: [Self; 24] = [
         Self::Pi,
+        Self::Felan,
         Self::Claude,
         Self::Codex,
         Self::Gemini,
@@ -121,6 +123,7 @@ impl Agent {
 pub fn agent_label(agent: Agent) -> &'static str {
     match agent {
         Agent::Pi => "pi",
+        Agent::Felan => "felan",
         Agent::Claude => "claude",
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
@@ -149,6 +152,7 @@ pub fn agent_label(agent: Agent) -> &'static str {
 pub fn interactive_agent_executable(agent: Agent) -> &'static str {
     match agent {
         Agent::Pi => "pi",
+        Agent::Felan => "felan",
         Agent::Claude => "claude",
         Agent::Codex => "codex",
         Agent::Gemini => "gemini",
@@ -194,6 +198,7 @@ fn lookup_agent(name: &str) -> Option<Agent> {
     let name = path_basename(name);
     match name {
         "pi" => Some(Agent::Pi),
+        "felan" => Some(Agent::Felan),
         "claude" | "claude-code" => Some(Agent::Claude),
         "codex" => Some(Agent::Codex),
         "gemini" => Some(Agent::Gemini),
@@ -317,6 +322,7 @@ pub(crate) fn full_lifecycle_hook_authority(source: &str, agent_label: &str) -> 
     matches!(
         (source, agent_label),
         ("herdr:pi", "pi")
+            | ("herdr:felan", "felan")
             | ("herdr:omp", "omp")
             | ("herdr:mastracode", "mastracode")
             | ("herdr:opencode", "opencode")
@@ -615,6 +621,9 @@ fn agent_name_from_known_package_path(path: &str) -> Option<String> {
                 .zip(suffix)
                 .all(|(actual, expected)| actual.eq_ignore_ascii_case(expected))
     };
+    if ends_with(&["node_modules", "@felan-ai", "felan", "dist", "cli.js"]) {
+        return Some(agent_label(Agent::Felan).to_string());
+    }
     if ends_with(&[
         "node_modules",
         "@earendil-works",
@@ -769,6 +778,8 @@ mod tests {
     #[test]
     fn identify_known_agents() {
         assert_eq!(identify_agent("pi"), Some(Agent::Pi));
+        assert_eq!(identify_agent("felan"), Some(Agent::Felan));
+        assert_eq!(identify_agent("felan.cmd"), Some(Agent::Felan));
         assert_eq!(identify_agent("claude"), Some(Agent::Claude));
         assert_eq!(identify_agent("claude-code"), Some(Agent::Claude));
         assert_eq!(identify_agent("codex"), Some(Agent::Codex));
@@ -820,6 +831,7 @@ mod tests {
     #[test]
     fn parse_known_agent_labels() {
         assert_eq!(parse_agent_label("pi"), Some(Agent::Pi));
+        assert_eq!(parse_agent_label("felan"), Some(Agent::Felan));
         assert_eq!(parse_agent_label("claude"), Some(Agent::Claude));
         assert_eq!(parse_agent_label("cursor-agent"), Some(Agent::Cursor));
         assert_eq!(parse_agent_label("devin-cli"), Some(Agent::Devin));
@@ -857,6 +869,7 @@ mod tests {
     fn every_agent_has_a_canonical_interactive_executable() {
         let expected = [
             (Agent::Pi, "pi"),
+            (Agent::Felan, "felan"),
             (Agent::Claude, "claude"),
             (Agent::Codex, "codex"),
             (Agent::Gemini, "gemini"),
@@ -911,6 +924,14 @@ mod tests {
     }
 
     #[test]
+    fn felan_is_hook_authority_without_screen_manifest() {
+        assert!(full_lifecycle_hook_authority("herdr:felan", "felan"));
+        assert!(!full_lifecycle_hook_authority("custom:felan", "felan"));
+        assert!(!full_lifecycle_hook_authority("herdr:felan", "pi"));
+        assert!(!Agent::SCREEN_MANIFEST_AGENTS.contains(&Agent::Felan));
+    }
+
+    #[test]
     fn session_identity_integrations_leave_state_to_screen_detection() {
         for (source, label, agent) in [
             ("herdr:hermes", "hermes", Agent::Hermes),
@@ -960,6 +981,53 @@ mod tests {
             identify_agent_in_job(&job),
             Some((Agent::Codex, "codex".to_string()))
         );
+    }
+
+    #[test]
+    fn identify_agent_in_job_detects_felan_wrappers() {
+        for (name, argv) in [
+            ("sh", vec!["/bin/sh", "/usr/local/bin/felan"]),
+            (
+                "node",
+                vec![
+                    "node",
+                    "/home/user/project/node_modules/@felan-ai/felan/dist/cli.js",
+                ],
+            ),
+            (
+                "node.exe",
+                vec![
+                    r"C:\Program Files\nodejs\node.exe",
+                    r"C:\Users\user\AppData\Roaming\npm\node_modules\@felan-ai\felan\dist\cli.js",
+                ],
+            ),
+        ] {
+            let job = crate::platform::ForegroundJob {
+                process_group_id: 123,
+                processes: vec![foreground_process(123, name, &argv)],
+            };
+
+            assert_eq!(
+                identify_agent_in_job(&job),
+                Some((Agent::Felan, "felan".to_string()))
+            );
+        }
+    }
+
+    #[test]
+    fn identify_agent_in_job_rejects_felan_package_lookalikes() {
+        for script in [
+            "/home/user/project/node_modules/@felan-ai/felan/dist/worker.js",
+            "/home/user/project/node_modules/@felan-ai/not-felan/dist/cli.js",
+            r"C:\Users\user\AppData\Roaming\npm\node_modules\@felan-ai\felan\cli.js",
+        ] {
+            let job = crate::platform::ForegroundJob {
+                process_group_id: 123,
+                processes: vec![foreground_process(123, "node", &["node", script])],
+            };
+
+            assert_eq!(identify_agent_in_job(&job), None, "script: {script}");
+        }
     }
 
     #[test]

@@ -58,15 +58,16 @@ pane_history = true
 resume_agents_on_restore = false
 ```
 
-Herdr 只会恢复那些通过当前官方 Herdr 集成上报了原生会话引用的窗格。
+Herdr 只会恢复那些通过当前官方 Herdr 集成或已识别的内置上报器上报了原生会话引用的窗格。
 
 当客户端连接并提供终端尺寸和主题上下文后,Herdr 会跨工作区和标签页恢复符合条件的智能体窗格,不需要等每个窗格被聚焦。
 
-智能体原生会话恢复需要以下版本或更新的 Herdr 集成:
+智能体原生会话恢复需要以下 Herdr 集成版本或上报器支持:
 
-| 智能体 | 最低 Herdr 集成版本 | 恢复命令 |
+| 智能体 | 要求 | 恢复命令 |
 | --- | --- | --- |
 | Pi | `2` | `pi --session <path-or-id>` |
+| Felan | 内置上报器 | `felan --session <id>` |
 | OMP | `3` | `omp --resume=<path-or-id>` |
 | Claude Code | `6` | `claude --resume <id>` |
 | Codex | `5` | `codex resume <id>` |
@@ -82,7 +83,9 @@ Herdr 只会恢复那些通过当前官方 Herdr 集成上报了原生会话引�
 | Hermes Agent | `2` | `hermes --resume <id>` |
 | MastraCode | `1` | `mastracode --thread <id>` |
 
-运行 `herdr integration status` 查看已安装的集成版本。用 `herdr integration install <agent>` 重新安装过期的集成。
+运行 `herdr integration status` 查看已安装的集成版本。用 `herdr integration install <agent>` 重新安装过期的集成;Felan 无需另行安装。
+
+Felan 会话 ID 从 Felan 已配置或默认的会话目录中解析。通过一次性 `--session-dir` 在该目录外打开的会话无法自动恢复。
 
 不受支持、缺失、无效、重复或过期的会话引用,会在保存的窗格目录中作为普通 shell 恢复。
 

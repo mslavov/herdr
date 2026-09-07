@@ -1182,6 +1182,17 @@
           ]
         },
         {
+          "key": "ui.sound.agents.felan",
+          "type": "enum",
+          "default": "\"default\"",
+          "description": "Sound override for detected Felan agents.",
+          "values": [
+            "default",
+            "on",
+            "off"
+          ]
+        },
+        {
           "key": "ui.sound.agents.claude",
           "type": "enum",
           "default": "\"default\"",
