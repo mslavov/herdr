@@ -1331,6 +1331,7 @@ impl TerminalState {
                 | ("herdr:hermes", "hermes", Some("startup" | "new" | "resume"))
                 | ("herdr:opencode", "opencode", Some("select"))
                 | ("herdr:pi", "pi", Some("new" | "resume" | "fork"))
+                | ("herdr:felan", "felan", Some("new" | "resume" | "fork"))
                 | (
                     "herdr:omp",
                     "omp",
@@ -2639,6 +2640,57 @@ mod tests {
             assert_eq!(
                 terminal.hook_authority.as_ref().unwrap().session_ref,
                 crate::agent_resume::AgentSessionRef::path(new_session)
+            );
+        }
+    }
+
+    #[test]
+    fn felan_session_replacement_reports_reanchor_full_lifecycle_authority() {
+        for reason in ["new", "resume", "fork"] {
+            let mut terminal = test_terminal();
+            let old_session = format!("felan-{reason}-old");
+            let new_session = format!("felan-{reason}-new");
+            terminal.set_detected_state(Some(Agent::Felan), AgentState::Idle);
+            terminal.set_hook_authority_with_session_ref(
+                "herdr:felan".into(),
+                "felan".into(),
+                AgentState::Idle,
+                None,
+                crate::agent_resume::AgentSessionRef::id(old_session),
+                Some(10),
+            );
+
+            let session_report = terminal.set_agent_session_ref_for_session_start(
+                "herdr:felan".into(),
+                "felan".into(),
+                crate::agent_resume::AgentSessionRef::id(new_session.clone()),
+                Some(11),
+                Some(reason.into()),
+            );
+
+            assert!(
+                session_report.is_some(),
+                "{reason} should replace the previous Felan session"
+            );
+            assert!(terminal.hook_authority.is_none());
+
+            let working = terminal.set_hook_authority_with_session_ref(
+                "herdr:felan".into(),
+                "felan".into(),
+                AgentState::Working,
+                None,
+                crate::agent_resume::AgentSessionRef::id(new_session.clone()),
+                Some(12),
+            );
+
+            assert!(
+                working.is_some(),
+                "{reason} should accept working for the replacement session"
+            );
+            assert_eq!(terminal.state, AgentState::Working);
+            assert_eq!(
+                terminal.hook_authority.as_ref().unwrap().session_ref,
+                crate::agent_resume::AgentSessionRef::id(new_session)
             );
         }
     }

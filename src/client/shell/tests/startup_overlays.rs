@@ -1226,6 +1226,8 @@ fn client_settings_preview_restore_and_endpoint_integrations_are_owned_by_overla
         })
         .collect::<Vec<_>>()
         .join("\n");
+    assert!(text.contains("felan"));
+    assert!(text.contains("built into agent"));
     assert!(text.contains("update available"));
     assert!(text.contains("not found"));
     assert!(!text.contains("pane labels"));

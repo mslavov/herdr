@@ -14,6 +14,7 @@ Automatic detection works out of the box for common coding agents. The table sho
 | Agent | State authority | Integration role |
 | --- | --- | --- |
 | Pi | lifecycle hooks when installed; otherwise screen manifest | state and session |
+| Felan | built-in lifecycle reporter | state and session |
 | OMP | lifecycle hooks when installed | state and session |
 | GitHub Copilot CLI | screen manifest | session |
 | Devin CLI | screen manifest | session |
@@ -41,7 +42,7 @@ Detected but less thoroughly tested: Gemini CLI and Cline. Unsupported agents st
 
 Herdr first detects the foreground process in each pane. After that, each pane has one status authority.
 
-For agents with complete lifecycle hooks, the integration is authoritative when it is installed and actively reporting for the running pane. Herdr uses those hook reports for `idle`, `working`, `blocked`, and session identity. It does not also run screen manifest fallback for that same lifecycle authority. This avoids two competing sources of truth.
+For agents with complete lifecycle hooks, the integration or built-in reporter is authoritative while actively reporting for the running pane. Herdr uses those reports for `idle`, `working`, `blocked`, and session identity. It does not also run screen manifest fallback for that same lifecycle authority. This avoids two competing sources of truth.
 
 For agents without complete lifecycle hooks, Herdr identifies the foreground process and reads the live bottom-buffer screen snapshot. It evaluates TOML manifests against that snapshot to classify `idle`, `working`, and `blocked`. For agents that emit them, manifests can also match terminal title and progress (OSC) sequences as detection evidence; when that evidence is absent, screen rules carry detection on their own.
 
@@ -98,14 +99,14 @@ This is the main Herdr workflow: start several agents, let them work in parallel
 
 ## Direct integrations
 
-Install the integration for each agent you use to give Herdr hook or plugin reports instead of screen detection alone:
+Install an integration for each agent that needs one to give Herdr hook or plugin reports instead of screen detection alone. Agents such as Felan that ship a built-in reporter need no separate installation:
 
 ```bash
 herdr integration install claude
 herdr integration status
 ```
 
-Each supported agent has its own integration name and behavior. See [Integrations](/docs/integrations/) for the per-agent details and the full install list. If you are building an agent, the [custom integration guide](/docs/integrations/#integrate-your-own-agent) shows how to report lifecycle state without adding native support to Herdr.
+Agents with separate integrations have their own integration name and behavior. See [Integrations](/docs/integrations/) for the per-agent details and the full install list. If you are building an agent, the [custom integration guide](/docs/integrations/#integrate-your-own-agent) shows how to report lifecycle state without adding native support to Herdr.
 
 ## Custom agent labels
 

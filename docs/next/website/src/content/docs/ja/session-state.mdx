@@ -58,15 +58,16 @@ pane_history = true
 resume_agents_on_restore = false
 ```
 
-Herdr が resume するのは、現行の公式 Herdr インテグレーションを通じてネイティブセッション参照を報告したペインだけです。
+Herdr が resume するのは、現行の公式 Herdr インテグレーションまたは認識済みの組み込みレポーターを通じてネイティブセッション参照を報告したペインだけです。
 
 クライアントがアタッチしてターミナルサイズとテーマのコンテキストを提供すると、Herdr は各ペインがフォーカスされるのを待たずに、ワークスペースとタブをまたいで復元対象のエージェントペインを resume します。
 
-エージェントネイティブのセッション復元には、次の Herdr インテグレーションバージョン以上が必要です:
+エージェントネイティブのセッション復元には、次の Herdr インテグレーションバージョンまたはレポーターサポートが必要です:
 
-| エージェント | 最低 Herdr インテグレーションバージョン | resume コマンド |
+| エージェント | 要件 | resume コマンド |
 | --- | --- | --- |
 | Pi | `2` | `pi --session <path-or-id>` |
+| Felan | 組み込みレポーター | `felan --session <id>` |
 | OMP | `3` | `omp --resume=<path-or-id>` |
 | Claude Code | `6` | `claude --resume <id>` |
 | Codex | `5` | `codex resume <id>` |
@@ -82,7 +83,9 @@ Herdr が resume するのは、現行の公式 Herdr インテグレーショ�
 | Hermes Agent | `2` | `hermes --resume <id>` |
 | MastraCode | `1` | `mastracode --thread <id>` |
 
-インストール済みインテグレーションのバージョンは `herdr integration status` で確認できます。古いインテグレーションは `herdr integration install <agent>` で再インストールしてください。
+インストール済みインテグレーションのバージョンは `herdr integration status` で確認できます。古いインテグレーションは `herdr integration install <agent>` で再インストールしてください。Felan は別途インストールする必要がありません。
+
+Felan のセッション ID は、Felan の設定済みまたはデフォルトのセッションディレクトリから解決されます。そのディレクトリ外を一時的な `--session-dir` で指定して開いたセッションは自動復元できません。
 
 未対応、欠落、無効、重複、または古くなったセッション参照は、保存されたペインディレクトリで通常のシェルとして復元されます。
 
