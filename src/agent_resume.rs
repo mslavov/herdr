@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 
 const MAX_SESSION_ID_LEN: usize = 512;
 const MAX_SESSION_PATH_LEN: usize = 4096;
+const MAX_RESUME_ARGS: usize = 64;
+const MAX_RESUME_ARGV_BYTES: usize = 8192;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentSessionRef {
     pub kind: AgentSessionRefKind,
     pub value: String,
@@ -23,6 +25,67 @@ pub struct AgentResumePlan {
     pub agent: String,
     pub argv: Vec<String>,
     pub dedupe_key: String,
+}
+
+/// A resume command reported by the agent itself, run in the restored pane.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReportedAgentResume {
+    pub source: String,
+    pub agent: String,
+    pub argv: Vec<String>,
+}
+
+impl ReportedAgentResume {
+    /// The same command can name different sessions in different directories,
+    /// for example `agent --continue`, so the directory is part of its identity.
+    pub fn plan(&self, cwd: &Path) -> AgentResumePlan {
+        AgentResumePlan {
+            agent: self.agent.clone(),
+            argv: self.argv.clone(),
+            dedupe_key: format!(
+                "{}\u{0}{}\u{0}{}\u{0}argv\u{0}{}",
+                self.source,
+                self.agent,
+                cwd.display(),
+                self.argv.join("\u{0}")
+            ),
+        }
+    }
+}
+
+/// Restore types the command into the pane's shell, so the executable must be a
+/// bare command name: shells disagree on how to invoke a quoted path.
+pub fn validate_resume_argv(argv: &[String]) -> Result<(), String> {
+    let Some(command) = argv.first() else {
+        return Err("resume_argv must not be empty".into());
+    };
+    if argv.len() > MAX_RESUME_ARGS {
+        return Err(format!(
+            "resume_argv allows at most {MAX_RESUME_ARGS} arguments"
+        ));
+    }
+    if argv.iter().map(String::len).sum::<usize>() > MAX_RESUME_ARGV_BYTES {
+        return Err(format!(
+            "resume_argv allows at most {MAX_RESUME_ARGV_BYTES} bytes"
+        ));
+    }
+    if argv.iter().any(|arg| arg.chars().any(char::is_control)) {
+        return Err("resume_argv must not contain control characters".into());
+    }
+    // Restore quotes arguments POSIX-style, which PowerShell reads differently
+    // only when an argument itself contains an apostrophe.
+    if argv.iter().any(|arg| arg.contains('\'')) {
+        return Err("resume_argv must not contain apostrophes".into());
+    }
+    let plain_command = !command.is_empty()
+        && !command.starts_with('-')
+        && command
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'));
+    if !plain_command {
+        return Err("resume_argv must start with a plain command name, not a path".into());
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -73,16 +136,23 @@ pub fn persisted_session_from_launch_args(
     agent: crate::detect::Agent,
     args: &[String],
 ) -> Option<PersistedAgentSession> {
-    let [command, session_id] = args else {
-        return None;
+    let (source, label, session_id) = match (agent, args) {
+        (crate::detect::Agent::Codex, [command, session_id])
+            if command == "resume" && !session_id.starts_with('-') =>
+        {
+            ("herdr:codex", "codex", session_id)
+        }
+        (crate::detect::Agent::Felan, [flag, session_id])
+            if flag == "--session" && !session_id.starts_with('-') =>
+        {
+            ("herdr:felan", "felan", session_id)
+        }
+        _ => return None,
     };
-    if agent != crate::detect::Agent::Codex || command != "resume" || session_id.starts_with('-') {
-        return None;
-    }
 
     Some(PersistedAgentSession {
-        source: "herdr:codex".into(),
-        agent: "codex".into(),
+        source: source.into(),
+        agent: label.into(),
         session_ref: AgentSessionRef::id(session_id.clone())?,
     })
 }
@@ -171,6 +241,13 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
         ("herdr:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
             vec!["pi".into(), "--session".into(), session_ref.value.clone()]
         }
+        ("herdr:felan", "felan", AgentSessionRefKind::Id) => {
+            vec![
+                "felan".into(),
+                "--session".into(),
+                session_ref.value.clone(),
+            ]
+        }
         ("herdr:omp", "omp", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
             // omp resume is `-r, --resume=<value>` (ID prefix or path); it has no
             // `--session` flag, unlike pi.
@@ -225,6 +302,26 @@ pub fn plan(source: &str, agent: &str, session_ref: &AgentSessionRef) -> Option<
         ("herdr:grok", "grok", AgentSessionRefKind::Id) => {
             vec!["grok".into(), "--resume".into(), session_ref.value.clone()]
         }
+        ("herdr:letta", "letta", AgentSessionRefKind::Id) => {
+            if let Some(agent_id) = session_ref.value.strip_prefix("default:") {
+                if agent_id.is_empty() {
+                    return None;
+                }
+                vec![
+                    "letta".into(),
+                    "--conversation".into(),
+                    "default".into(),
+                    "--agent".into(),
+                    agent_id.into(),
+                ]
+            } else {
+                vec![
+                    "letta".into(),
+                    "--conversation".into(),
+                    session_ref.value.clone(),
+                ]
+            }
+        }
         _ => return None,
     };
 
@@ -254,6 +351,7 @@ pub(crate) fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("herdr:omp", "omp")
             | ("herdr:mastracode", "mastracode")
             | ("herdr:pi", "pi")
+            | ("herdr:felan", "felan")
             | ("herdr:hermes", "hermes")
             | ("herdr:opencode", "opencode")
             | ("herdr:qodercli", "qodercli")
@@ -262,6 +360,7 @@ pub(crate) fn is_official_agent_source(source: &str, agent: &str) -> bool {
             | ("herdr:cursor", "cursor")
             | ("herdr:antigravity_cli", "agy")
             | ("herdr:grok", "grok")
+            | ("herdr:letta", "letta")
     )
 }
 
@@ -286,6 +385,38 @@ mod tests {
             .join(name)
             .display()
             .to_string()
+    }
+
+    fn argv(parts: &[&str]) -> Vec<String> {
+        parts.iter().map(|part| part.to_string()).collect()
+    }
+
+    #[test]
+    fn reported_resume_argv_requires_a_plain_command_name() {
+        assert!(validate_resume_argv(&argv(&[
+            "prime-agent",
+            "--resume",
+            "01a0de21",
+            "--model",
+            "gpt 6"
+        ]))
+        .is_ok());
+        assert!(validate_resume_argv(&argv(&["cursor-agent.cmd", "--resume", "id"])).is_ok());
+
+        for invalid in [
+            argv(&[]),
+            argv(&[""]),
+            argv(&["/usr/bin/prime-agent", "--resume", "id"]),
+            argv(&["C:\\Program Files\\Prime\\prime.exe"]),
+            argv(&["prime agent"]),
+            argv(&["-prime"]),
+            argv(&["prime-agent", "bad\nline"]),
+            argv(&["prime-agent", "--name", "can's session"]),
+            vec!["prime-agent".to_string(); MAX_RESUME_ARGS + 1],
+            argv(&["prime-agent", &"x".repeat(MAX_RESUME_ARGV_BYTES)]),
+        ] {
+            assert!(validate_resume_argv(&invalid).is_err(), "{invalid:?}");
+        }
     }
 
     #[test]
@@ -330,6 +461,30 @@ mod tests {
                 "resume".into(),
                 "remote-session".into(),
             ]
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn felan_session_launch_persists_an_id() {
+        let session = persisted_session_from_launch_args(
+            crate::detect::Agent::Felan,
+            &["--session".into(), "felan-session".into()],
+        )
+        .unwrap();
+
+        assert_eq!(session.source, "herdr:felan");
+        assert_eq!(session.agent, "felan");
+        assert_eq!(session.session_ref.kind, AgentSessionRefKind::Id);
+        assert_eq!(session.session_ref.value, "felan-session");
+        assert!(persisted_session_from_launch_args(
+            crate::detect::Agent::Felan,
+            &["--session=/tmp/session.jsonl".into()]
+        )
+        .is_none());
+        assert!(persisted_session_from_launch_args(
+            crate::detect::Agent::Felan,
+            &["--session".into(), "--invalid".into()]
         )
         .is_none());
     }
@@ -417,6 +572,16 @@ mod tests {
             .unwrap()
             .argv,
             vec!["pi", "--session", pi_session.as_str()]
+        );
+        assert_eq!(
+            plan(
+                "herdr:felan",
+                "felan",
+                &AgentSessionRef::id("felan-session").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["felan", "--session", "felan-session"]
         );
         assert_eq!(
             plan(
@@ -516,6 +681,32 @@ mod tests {
             .argv,
             vec!["grok", "--resume", "grok-session"]
         );
+        assert_eq!(
+            plan(
+                "herdr:letta",
+                "letta",
+                &AgentSessionRef::id("conversation-123").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["letta", "--conversation", "conversation-123"]
+        );
+        assert_eq!(
+            plan(
+                "herdr:letta",
+                "letta",
+                &AgentSessionRef::id("default:agent-123").unwrap()
+            )
+            .unwrap()
+            .argv,
+            vec!["letta", "--conversation", "default", "--agent", "agent-123"]
+        );
+        assert!(plan(
+            "herdr:letta",
+            "letta",
+            &AgentSessionRef::id("default:").unwrap()
+        )
+        .is_none());
     }
 
     #[test]
@@ -632,6 +823,18 @@ mod tests {
         assert_eq!(session_ref.kind, AgentSessionRefKind::Id);
         assert_eq!(session_ref.value, "mastracode-id");
 
+        let felan_path = absolute_test_path("felan-session.jsonl");
+        let session_ref = session_ref_from_report(
+            "herdr:felan",
+            "felan",
+            Some("felan-id".into()),
+            Some(felan_path.clone()),
+        )
+        .unwrap();
+        assert_eq!(session_ref.kind, AgentSessionRefKind::Id);
+        assert_eq!(session_ref.value, "felan-id");
+        assert!(session_ref_from_report("herdr:felan", "felan", None, Some(felan_path)).is_none());
+
         let session_ref =
             session_ref_from_report("herdr:kilo", "kilo", Some("kilo-id".into()), None).unwrap();
         assert_eq!(session_ref.kind, AgentSessionRefKind::Id);
@@ -717,11 +920,32 @@ mod tests {
 
     #[test]
     fn planner_rejects_path_refs_for_id_only_agents() {
+        let felan_session = absolute_test_path("felan-session");
         let hermes_session = absolute_test_path("hermes-session");
         let opencode_session = absolute_test_path("opencode-session");
         let kilo_session = absolute_test_path("kilo-session");
         let copilot_session = absolute_test_path("copilot-session");
         let devin_session = absolute_test_path("devin-session");
+        assert!(plan(
+            "herdr:felan",
+            "felan",
+            &AgentSessionRef::path(&felan_session).unwrap()
+        )
+        .is_none());
+        assert!(session_ref_from_snapshot(
+            "herdr:felan",
+            "felan",
+            AgentSessionRefKind::Id,
+            "felan-session"
+        )
+        .is_some());
+        assert!(session_ref_from_snapshot(
+            "herdr:felan",
+            "felan",
+            AgentSessionRefKind::Path,
+            &felan_session
+        )
+        .is_none());
         assert!(plan(
             "herdr:hermes",
             "hermes",
